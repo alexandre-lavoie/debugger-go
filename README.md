@@ -1,2 +1,3 @@
 # gdb-go
-Go library for GDB Remote Serial Protocol
+
+Go client for [GDB Remote Serial Protocol](https://sourceware.org/gdb/current/onlinedocs/gdb.html/Remote-Protocol.html).
