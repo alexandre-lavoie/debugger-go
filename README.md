@@ -1,3 +1,7 @@
-# gdb-go
+# debugger-go
 
-Go client for [GDB Remote Serial Protocol](https://sourceware.org/gdb/current/onlinedocs/gdb.html/Remote-Protocol.html).
+Go clients for software debuggers.
+
+## GDB package
+
+Implementation of [GDB Remote Serial Protocol](https://sourceware.org/gdb/current/onlinedocs/gdb.html/Remote-Protocol.html).

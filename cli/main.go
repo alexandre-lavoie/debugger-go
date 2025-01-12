@@ -7,7 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/alexandre-lavoie/gdb-go/gdb"
+	"github.com/alexandre-lavoie/debugger-go/gdb"
 )
 
 func main() {
