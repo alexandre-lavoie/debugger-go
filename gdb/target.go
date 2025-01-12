@@ -10,10 +10,10 @@ import (
 type Target struct {
 	Name string
 	Path string
+	Arch Architecture
 }
 
 type Architecture struct {
-	Name      string
 	Registers []Register
 }
 
@@ -50,36 +50,31 @@ func ReadTarget(r io.Reader) (Target, error) {
 		switch el := tok.(type) {
 		case xml.StartElement:
 			switch el.Name.Local {
-			case "target":
-				for {
-					tok, err := decoder.Token()
-					if err != nil {
-						return target, err
-					}
-
-					found := false
-
-					switch body := tok.(type) {
-					case xml.CharData:
-						target.Name = string(body[:])
-						found = true
-					}
-
-					if found {
-						break
-					}
+			case "architecture":
+				name, err := parseArchitectureName(decoder)
+				if err != nil {
+					return target, err
 				}
+
+				target.Name = name
 			case "include":
 				if el.Name.Space != "xi" {
 					continue
 				}
 
-				for _, attr := range el.Attr {
-					switch attr.Name.Local {
-					case "href":
-						target.Path = attr.Value
-					}
+				path, err := parseInclude(el)
+				if err != nil {
+					return target, err
 				}
+
+				target.Path = path
+			case "reg":
+				reg, err := parseRegister(el)
+				if err != nil {
+					return target, nil
+				}
+
+				target.Arch.Registers = append(target.Arch.Registers, reg)
 			}
 		}
 	}
@@ -106,22 +101,9 @@ func ReadArchitecture(r io.Reader) (Architecture, error) {
 		case xml.StartElement:
 			switch el.Name.Local {
 			case "reg":
-				reg := Register{}
-
-				for _, attr := range el.Attr {
-					switch attr.Name.Local {
-					case "name":
-						reg.Name = attr.Value
-					case "bitsize":
-						v, err := strconv.ParseUint(attr.Value, 10, 64)
-						if err != nil {
-							return arch, err
-						}
-
-						reg.BitSize = uint(v)
-					case "type":
-						reg.Type = attr.Value
-					}
+				reg, err := parseRegister(el)
+				if err != nil {
+					return arch, nil
 				}
 
 				arch.Registers = append(arch.Registers, reg)
@@ -130,4 +112,51 @@ func ReadArchitecture(r io.Reader) (Architecture, error) {
 	}
 
 	return arch, nil
+}
+
+func parseInclude(el xml.StartElement) (string, error) {
+	for _, attr := range el.Attr {
+		switch attr.Name.Local {
+		case "href":
+			return attr.Value, nil
+		}
+	}
+
+	return "", fmt.Errorf("invalid include")
+}
+
+func parseArchitectureName(decoder *xml.Decoder) (string, error) {
+	for {
+		tok, err := decoder.Token()
+		if err != nil {
+			return "", err
+		}
+
+		switch body := tok.(type) {
+		case xml.CharData:
+			return string(body[:]), nil
+		}
+	}
+}
+
+func parseRegister(el xml.StartElement) (Register, error) {
+	reg := Register{}
+
+	for _, attr := range el.Attr {
+		switch attr.Name.Local {
+		case "name":
+			reg.Name = attr.Value
+		case "bitsize":
+			v, err := strconv.ParseUint(attr.Value, 10, 64)
+			if err != nil {
+				return reg, err
+			}
+
+			reg.BitSize = uint(v)
+		case "type":
+			reg.Type = attr.Value
+		}
+	}
+
+	return reg, nil
 }

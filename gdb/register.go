@@ -53,3 +53,21 @@ func ReadRegister(r io.Reader, definition *Register) (RegisterValue, error) {
 
 	return reg, nil
 }
+
+func WriteRegisters(w io.Writer, regs []RegisterValue) error {
+	for _, reg := range regs {
+		if err := WriteRegister(w, &reg); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func WriteRegister(w io.Writer, reg *RegisterValue) error {
+	if _, err := w.Write(reg.Value); err != nil {
+		return err
+	}
+
+	return nil
+}

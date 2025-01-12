@@ -1,7 +1,6 @@
 package gdb
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/binary"
@@ -15,7 +14,7 @@ import (
 type GDBRSP struct {
 	Conn GDBConnection
 
-	Arch *Architecture
+	Target *Target
 }
 
 type GDBConnection interface {
@@ -32,12 +31,12 @@ func (gdb *GDBRSP) init(ctx context.Context) error {
 	}
 
 	{
-		arch, err := gdb.QueryArchitecture(ctx)
+		arch, err := gdb.QueryTarget(ctx)
 		if err != nil {
 			return err
 		}
 
-		gdb.Arch = &arch
+		gdb.Target = &arch
 	}
 
 	return nil
@@ -80,7 +79,7 @@ func (gdb *GDBRSP) Continue(ctx context.Context) error {
 }
 
 func (gdb *GDBRSP) ContinueAt(ctx context.Context, address uint) error {
-	command := fmt.Sprintf("c%s", gdb.Arch.FormatAddress(address))
+	command := fmt.Sprintf("c%s", gdb.Target.Arch.FormatAddress(address))
 
 	if err := gdb.SendCommand(ctx, command); err != nil {
 		return err
@@ -109,47 +108,62 @@ func (gdb *GDBRSP) QuerySupported(ctx context.Context) (GDBFeatures, error) {
 	return features, nil
 }
 
-func (gdb *GDBRSP) QueryTarget(ctx context.Context) (Target, error) {
-	command := "qXfer:features:read:target.xml:0,fff"
-
-	if err := gdb.SendCommand(ctx, command); err != nil {
-		return Target{}, err
-	}
-
-	res, err := gdb.RecvResponse(ctx)
+func (gdb *GDBRSP) QueryTargetPartial(ctx context.Context) (Target, error) {
+	res, err := gdb.ReadFeature(ctx, "target.xml")
 	if err != nil {
-		return Target{}, err
+		return Target{}, nil
 	}
 
-	return ReadTarget(bytes.NewReader(res))
+	target, err := ReadTarget(bytes.NewReader(res))
+	if err != nil {
+		return target, err
+	}
+
+	if target.Name == "" {
+		return target, errors.New("no name")
+	}
+
+	return target, nil
 }
 
-func (gdb *GDBRSP) QueryArchitecture(ctx context.Context) (Architecture, error) {
-	target, err := gdb.QueryTarget(ctx)
+func (gdb *GDBRSP) QueryTarget(ctx context.Context) (Target, error) {
+	target, err := gdb.QueryTargetPartial(ctx)
 	if err != nil {
-		return Architecture{}, err
+		return Target{}, err
 	}
 
 	if target.Path == "" {
-		return Architecture{}, errors.New("no architecture file path")
+		return target, nil
 	}
 
+	raw, err := gdb.ReadFeature(ctx, target.Path)
+	if err != nil {
+		return target, err
+	}
+
+	arch, err := ReadArchitecture(bytes.NewReader(raw))
+	target.Arch = arch
+
+	return target, err
+}
+
+func (gdb *GDBRSP) ReadFeature(ctx context.Context, path string) ([]byte, error) {
 	buffer := new(bytes.Buffer)
 
 	size := 0x700
 	for offset := 0; ; offset += size {
-		command := fmt.Sprintf("qXfer:features:read:%s:%x,%x", target.Path, offset, size)
+		command := fmt.Sprintf("qXfer:features:read:%s:%x,%x", path, offset, size)
 
 		if err := gdb.SendCommand(ctx, command); err != nil {
-			return Architecture{}, err
+			return nil, err
 		}
 
 		res, err := gdb.RecvResponse(ctx)
 		if err != nil {
-			return Architecture{}, err
+			return nil, err
 		}
 
-		// TODO: Is there always an extra byte at the start?
+		// TODO: Not sure what is the extra bit.
 		buffer.Write(res[1:])
 
 		if len(res) < size {
@@ -157,13 +171,40 @@ func (gdb *GDBRSP) QueryArchitecture(ctx context.Context) (Architecture, error) 
 		}
 	}
 
-	raw := buffer.Bytes()
+	return buffer.Bytes(), nil
+}
 
-	arch, err := ReadArchitecture(bytes.NewReader(raw))
+func (gdb *GDBRSP) ReadRegisterIndex(ctx context.Context, index uint) (RegisterValue, error) {
+	command := fmt.Sprintf("p%x", index)
 
-	arch.Name = target.Name
+	if err := gdb.SendCommand(ctx, command); err != nil {
+		return RegisterValue{}, err
+	}
 
-	return arch, err
+	res, err := gdb.RecvResponse(ctx)
+	if err != nil {
+		return RegisterValue{}, err
+	}
+
+	val, err := hex.DecodeString(string(res))
+	if err != nil {
+		return RegisterValue{}, err
+	}
+
+	if gdb.Target == nil || uint(len(gdb.Target.Arch.Registers)) <= index {
+		return RegisterValue{Value: val}, nil
+	}
+
+	return RegisterValue{Definition: &gdb.Target.Arch.Registers[index], Value: val}, nil
+}
+
+func (gdb *GDBRSP) ReadRegisters(ctx context.Context) ([]RegisterValue, error) {
+	raw, err := gdb.ReadRegistersRaw(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return ReadRegisters(bytes.NewReader(raw), &gdb.Target.Arch)
 }
 
 func (gdb *GDBRSP) ReadRegistersRaw(ctx context.Context) ([]byte, error) {
@@ -186,17 +227,57 @@ func (gdb *GDBRSP) ReadRegistersRaw(ctx context.Context) ([]byte, error) {
 	return raw, nil
 }
 
-func (gdb *GDBRSP) ReadRegisters(ctx context.Context) ([]RegisterValue, error) {
-	raw, err := gdb.ReadRegistersRaw(ctx)
-	if err != nil {
-		return nil, err
+func (gdb *GDBRSP) WriteRegisterIndex(ctx context.Context, index uint, data []byte) error {
+	x := hex.EncodeToString(data)
+
+	command := fmt.Sprintf("P%x=%s", index, x)
+
+	if err := gdb.SendCommand(ctx, command); err != nil {
+		return err
 	}
 
-	return ReadRegisters(bytes.NewReader(raw), gdb.Arch)
+	res, err := gdb.RecvResponse(ctx)
+	if err != nil {
+		return err
+	}
+
+	resd := string(res)
+	if resd == "OK" {
+		return nil
+	} else {
+		return errors.New(fmt.Sprintf("failed: %s", resd[1:]))
+	}
+}
+
+func (gdb *GDBRSP) WriteRegisters(ctx context.Context, regs []RegisterValue) error {
+	data := new(bytes.Buffer)
+
+	if err := WriteRegisters(data, regs); err != nil {
+		return err
+	}
+
+	x := hex.EncodeToString(data.Bytes())
+
+	command := fmt.Sprintf("G%s", x)
+
+	if err := gdb.SendCommand(ctx, command); err != nil {
+		return err
+	}
+
+	res, err := gdb.RecvResponse(ctx)
+	if err != nil {
+		return err
+	}
+
+	if string(res) == "OK" {
+		return nil
+	} else {
+		return fmt.Errorf("error %s", res[1:])
+	}
 }
 
 func (gdb *GDBRSP) ReadMemory(ctx context.Context, address uint, length uint) ([]byte, error) {
-	command := fmt.Sprintf("m%s,%x", gdb.Arch.FormatAddress(address), length)
+	command := fmt.Sprintf("m%s,%x", gdb.Target.Arch.FormatAddress(address), length)
 
 	if err := gdb.SendCommand(ctx, command); err != nil {
 		return nil, err
@@ -207,12 +288,37 @@ func (gdb *GDBRSP) ReadMemory(ctx context.Context, address uint, length uint) ([
 		return nil, err
 	}
 
+	if len(res) > 0 && res[0] == 'E' {
+		return nil, fmt.Errorf("error %s", res[1:])
+	}
+
 	raw, err := hex.DecodeString(string(res[:]))
 	if err != nil {
 		return nil, err
 	}
 
 	return raw, nil
+}
+
+func (gdb *GDBRSP) WriteMemory(ctx context.Context, address uint, data []byte) error {
+	x := hex.EncodeToString(data)
+
+	command := fmt.Sprintf("M%s,%x:%s", gdb.Target.Arch.FormatAddress(address), len(data), x)
+
+	if err := gdb.SendCommand(ctx, command); err != nil {
+		return err
+	}
+
+	res, err := gdb.RecvResponse(ctx)
+	if err != nil {
+		return err
+	}
+
+	if string(res) == "OK" {
+		return nil
+	} else {
+		return fmt.Errorf("error %s", res[1:])
+	}
 }
 
 func (gdb *GDBRSP) Wait(ctx context.Context) error {
@@ -235,18 +341,8 @@ func (gdb *GDBRSP) SendRawCommand(ctx context.Context, data []byte) error {
 		gdb.Conn.SetDeadline(time.Time{})
 	}
 
-	checksum := PayloadChecksum(data)
-
-	buffer := new(bytes.Buffer)
-
-	buffer.Write([]byte("$"))
-	buffer.Write(data)
-	buffer.Write([]byte(fmt.Sprintf("#%02x", checksum)))
-
-	packet := buffer.Bytes()
-
 	for {
-		if _, err := gdb.Conn.Write(packet); err != nil {
+		if err := WritePacket(gdb.Conn, data); err != nil {
 			return err
 		}
 
@@ -274,41 +370,9 @@ func (gdb *GDBRSP) RecvResponse(ctx context.Context) ([]byte, error) {
 		gdb.Conn.SetDeadline(time.Time{})
 	}
 
-	r := bufio.NewReader(gdb.Conn)
-
-	if _, err := r.ReadBytes('$'); err != nil {
-		return nil, err
-	}
-
-	payload, err := r.ReadBytes('#')
+	payload, err := ReadPacket(gdb.Conn)
 	if err != nil {
 		return nil, err
-	}
-	payload = payload[:len(payload)-1]
-
-	{
-		c0, err := r.ReadByte()
-		if err != nil {
-			return nil, err
-		}
-
-		c1, err := r.ReadByte()
-		if err != nil {
-			return nil, err
-		}
-
-		buffer := []byte{c0, c1}
-
-		var checksum uint
-		fmt.Sscanf(string(buffer[:]), "%x", &checksum)
-
-		actual := PayloadChecksum(payload)
-
-		if uint8(checksum) != actual {
-			fmt.Printf("%v != %v\n", checksum, actual)
-
-			return nil, errors.New("invalid checksum")
-		}
 	}
 
 	if _, err := gdb.Conn.Write([]byte{'+'}); err != nil {
