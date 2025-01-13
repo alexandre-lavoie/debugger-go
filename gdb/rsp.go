@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 )
 
@@ -15,6 +16,13 @@ type GDBRSP struct {
 	Conn GDBConnection
 
 	Target *Target
+
+	ThreadID    uint32
+	Breakpoints []*Breakpoint
+
+	Stopped    bool
+	ExitCode   uint
+	SignalCode uint
 }
 
 type GDBConnection interface {
@@ -24,10 +32,9 @@ type GDBConnection interface {
 }
 
 func (gdb *GDBRSP) init(ctx context.Context) error {
-	res, err := gdb.recvConnect(ctx)
-	if err == nil {
-		// TODO: Handle initial data
-		_ = res
+	_, err := gdb.recvConnect(ctx)
+	if err != nil {
+		return err
 	}
 
 	{
@@ -42,11 +49,13 @@ func (gdb *GDBRSP) init(ctx context.Context) error {
 	return nil
 }
 
-func (gdb *GDBRSP) recvConnect(ctx context.Context) ([]byte, error) {
+func (gdb *GDBRSP) recvConnect(ctx context.Context) (ReplyType, error) {
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(500)*time.Millisecond)
 	defer cancel()
 
-	return gdb.RecvResponse(ctx)
+	r, _ := gdb.WaitReply(ctx)
+
+	return r, nil
 }
 
 func (gdb *GDBRSP) Close() {
@@ -86,6 +95,193 @@ func (gdb *GDBRSP) ContinueAt(ctx context.Context, address uint) error {
 	}
 
 	return nil
+}
+
+func (gdb *GDBRSP) Run(ctx context.Context) error {
+	for !gdb.Stopped {
+		r, err := gdb.WaitReply(ctx)
+		if err != nil {
+			return err
+		}
+
+		ctn := true
+
+		switch r {
+		case SignalReply:
+			fallthrough
+		case StatusReply:
+			if gdb.Target.Arch.PC != nil {
+				val, err := gdb.ReadRegister(ctx, gdb.Target.Arch.PC)
+				if err != nil {
+					return err
+				}
+
+				ptr := val.ToUint()
+				for _, b := range gdb.Breakpoints {
+					if b == nil {
+						continue
+					}
+
+					if b.Handler == nil {
+						continue
+					}
+
+					if ptr < b.Address || b.Address+b.Length >= ptr {
+						continue
+					}
+
+					if err := b.Handler(ctx); err != nil {
+						return err
+					}
+
+					ctn = false
+
+					break
+				}
+			}
+		default:
+		}
+
+		if ctn {
+			// Getting stuck here
+			if err := gdb.Continue(ctx); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+func (gdb *GDBRSP) AddBreakpoint(ctx context.Context, t BreakpointType, address uint, byteLength uint, handler BreakpointHandler) (*Breakpoint, error) {
+	command := fmt.Sprintf("Z%x,%s,%x", t, gdb.Target.Arch.FormatAddress(address), byteLength)
+
+	if err := gdb.SendCommand(ctx, command); err != nil {
+		return nil, err
+	}
+
+	res, err := gdb.RecvResponse(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	b := &Breakpoint{
+		Type:    t,
+		Address: address,
+		Length:  byteLength,
+		Handler: handler,
+	}
+
+	if string(res[:2]) == "OK" {
+		gdb.Breakpoints = append(gdb.Breakpoints, b)
+
+		return b, nil
+	} else if res[0] == 'E' {
+		return nil, fmt.Errorf("error %s", res[1:])
+	} else {
+		return nil, fmt.Errorf("unimplemented")
+	}
+}
+
+func (gdb *GDBRSP) RemoveBreakpoint(ctx context.Context, b *Breakpoint) error {
+	idx := 0
+	found := false
+
+	for i, bn := range gdb.Breakpoints {
+		if bn == b {
+			idx = i
+			break
+		}
+	}
+
+	if found {
+		return errors.New("not found")
+	}
+
+	command := fmt.Sprintf("z%x,%s,%x", b.Type, gdb.Target.Arch.FormatAddress(b.Address), b.Length)
+
+	if err := gdb.SendCommand(ctx, command); err != nil {
+		return err
+	}
+
+	res, err := gdb.RecvResponse(ctx)
+	if err != nil {
+		return err
+	}
+
+	if string(res[:2]) == "OK" {
+		gdb.Breakpoints[idx] = nil
+
+		return nil
+	} else if res[0] == 'E' {
+		return fmt.Errorf("error %s", res[1:])
+	} else {
+		return fmt.Errorf("unimplemented")
+	}
+}
+
+func (gdb *GDBRSP) WaitReply(ctx context.Context) (ReplyType, error) {
+	p, err := gdb.RecvResponse(ctx)
+	if err != nil {
+		return InvalidReply, err
+	}
+
+	return gdb.ProcessReply(ctx, p)
+}
+
+func (gdb *GDBRSP) ProcessReply(ctx context.Context, p []byte) (ReplyType, error) {
+	if len(p) == 0 {
+		return InvalidReply, errors.New("invalid length")
+	}
+
+	switch p[0] {
+	case byte(SignalReply):
+		if _, err := fmt.Sscanf(string(p[1:3]), "%x", &gdb.SignalCode); err != nil {
+			return InvalidReply, err
+		}
+	case byte(StatusReply):
+		if _, err := fmt.Sscanf(string(p[1:3]), "%x", &gdb.SignalCode); err != nil {
+			return InvalidReply, err
+		}
+
+		parts := strings.Split(string(p[3:]), ";")
+
+		for _, part := range parts {
+			if !strings.Contains(part, ":") {
+				continue
+			}
+
+			parts := strings.Split(part, ":")
+
+			key, hv := parts[0], parts[1]
+
+			if key == "thread" {
+				if _, err := fmt.Sscanf(hv, "%x", &gdb.ThreadID); err != nil {
+					return InvalidReply, err
+				}
+			} else {
+				// TODO: Handle registers
+			}
+		}
+	case byte(ExitReply):
+		gdb.Stopped = true
+
+		if _, err := fmt.Sscanf(string(p[1:3]), "%x", &gdb.ExitCode); err != nil {
+			return InvalidReply, err
+		}
+	case byte(TerminateReply):
+		gdb.Stopped = true
+
+		if _, err := fmt.Sscanf(string(p[1:3]), "%x", &gdb.SignalCode); err != nil {
+			return InvalidReply, err
+		}
+	case byte(DataReply):
+		// TODO: Is this required?
+	default:
+		return InvalidReply, errors.New("unhandled reply")
+	}
+
+	return ReplyType(p[0]), nil
 }
 
 func (gdb *GDBRSP) QuerySupported(ctx context.Context) (GDBFeatures, error) {
@@ -174,6 +370,34 @@ func (gdb *GDBRSP) ReadFeature(ctx context.Context, path string) ([]byte, error)
 	return buffer.Bytes(), nil
 }
 
+func (gdb *GDBRSP) ReadRegister(ctx context.Context, reg *Register) (RegisterValue, error) {
+	if reg.Index >= uint(len(gdb.Target.Arch.Registers)) {
+		return RegisterValue{}, errors.New("register out of bounds")
+	}
+
+	if gdb.Target.Arch.Registers[reg.Index] != reg {
+		return RegisterValue{}, errors.New("register not in architecture")
+	}
+
+	command := fmt.Sprintf("p%x", reg.Index)
+
+	if err := gdb.SendCommand(ctx, command); err != nil {
+		return RegisterValue{}, err
+	}
+
+	res, err := gdb.RecvResponse(ctx)
+	if err != nil {
+		return RegisterValue{}, err
+	}
+
+	val, err := hex.DecodeString(string(res))
+	if err != nil {
+		return RegisterValue{}, err
+	}
+
+	return RegisterValue{Definition: reg, Value: val}, nil
+}
+
 func (gdb *GDBRSP) ReadRegisterIndex(ctx context.Context, index uint) (RegisterValue, error) {
 	command := fmt.Sprintf("p%x", index)
 
@@ -195,7 +419,7 @@ func (gdb *GDBRSP) ReadRegisterIndex(ctx context.Context, index uint) (RegisterV
 		return RegisterValue{Value: val}, nil
 	}
 
-	return RegisterValue{Definition: &gdb.Target.Arch.Registers[index], Value: val}, nil
+	return RegisterValue{Definition: gdb.Target.Arch.Registers[index], Value: val}, nil
 }
 
 func (gdb *GDBRSP) ReadRegisters(ctx context.Context) ([]RegisterValue, error) {
@@ -319,15 +543,6 @@ func (gdb *GDBRSP) WriteMemory(ctx context.Context, address uint, data []byte) e
 	} else {
 		return fmt.Errorf("error %s", res[1:])
 	}
-}
-
-func (gdb *GDBRSP) Wait(ctx context.Context) error {
-	_, err := gdb.RecvResponse(ctx)
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 func (gdb *GDBRSP) SendCommand(ctx context.Context, data string) error {

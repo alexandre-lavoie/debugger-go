@@ -8,6 +8,7 @@ import (
 
 type Register struct {
 	Name    string
+	Index   uint
 	BitSize uint
 	Type    string
 }
@@ -17,6 +18,17 @@ type RegisterValue struct {
 	Value      []byte
 }
 
+func (r *RegisterValue) ToUint() uint {
+	o := uint(0)
+
+	for i := len(r.Value) - 1; i >= 0; i-- {
+		o <<= 8
+		o &= uint(r.Value[i])
+	}
+
+	return o
+}
+
 func ReadRegisters(r io.Reader, architecture *Architecture) ([]RegisterValue, error) {
 	if architecture == nil {
 		return nil, errors.New("nil architecture")
@@ -24,9 +36,7 @@ func ReadRegisters(r io.Reader, architecture *Architecture) ([]RegisterValue, er
 
 	registers := make([]RegisterValue, len(architecture.Registers))
 
-	for i := range architecture.Registers {
-		def := &architecture.Registers[i]
-
+	for i, def := range architecture.Registers {
 		reg, err := ReadRegister(r, def)
 		if err != nil {
 			return nil, err

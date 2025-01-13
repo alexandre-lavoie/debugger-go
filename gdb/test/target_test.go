@@ -62,7 +62,8 @@ func TestQueryTargetFull(t *testing.T) {
 		return
 	}
 
-	if [1]gdb.Register(target.Arch.Registers) != [1]gdb.Register{{Name: "int32", BitSize: 32, Type: "int32"}} {
+	r := gdb.Register{Name: "int32", BitSize: 32, Type: "int32"}
+	if *target.Arch.Registers[0] != r {
 		t.Errorf("invalid registers")
 		return
 	}
@@ -102,7 +103,8 @@ func TestQueryTargetPartial(t *testing.T) {
 		return
 	}
 
-	if [1]gdb.Register(target.Arch.Registers) != [1]gdb.Register{{Name: "int32", BitSize: 32, Type: "int32"}} {
+	r := gdb.Register{Name: "int32", BitSize: 32, Type: "int32"}
+	if *target.Arch.Registers[0] != r {
 		t.Errorf("invalid registers")
 		return
 	}

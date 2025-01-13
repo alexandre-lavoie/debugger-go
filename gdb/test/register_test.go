@@ -7,6 +7,58 @@ import (
 	"github.com/alexandre-lavoie/debugger-go/gdb"
 )
 
+func TestReadRegister(t *testing.T) {
+	// Arrange
+	output := [][]byte{
+		[]byte("+"),
+		gdb.BuildPacket([]byte("deadbeef")),
+	}
+
+	conn := NewTestConnection(output)
+
+	target := &gdb.Target{
+		Name: "test",
+		Arch: gdb.Architecture{
+			Registers: []*gdb.Register{
+				{
+					Name:    "int32",
+					Index:   0,
+					BitSize: 32,
+					Type:    "int32",
+				},
+			},
+		},
+	}
+
+	g := gdb.GDBRSP{
+		Conn:   conn,
+		Target: target,
+	}
+
+	// Act
+	reg, err := g.ReadRegister(context.Background(), target.Arch.Registers[0])
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	// Assert
+	if reg.Definition != target.Arch.Registers[0] {
+		t.Errorf("invalid register")
+		return
+	}
+
+	if reg.Value == nil || len(reg.Value) != 4 {
+		t.Errorf("invalid value")
+		return
+	}
+
+	if [4]byte(reg.Value) != [4]byte{0xDE, 0xAD, 0xBE, 0xEF} {
+		t.Errorf("invalid value")
+		return
+	}
+}
+
 func TestReadRegisterIndex(t *testing.T) {
 	// Arrange
 	output := [][]byte{
@@ -19,7 +71,7 @@ func TestReadRegisterIndex(t *testing.T) {
 	target := &gdb.Target{
 		Name: "test",
 		Arch: gdb.Architecture{
-			Registers: []gdb.Register{
+			Registers: []*gdb.Register{
 				{
 					Name:    "int32",
 					BitSize: 32,
@@ -42,7 +94,7 @@ func TestReadRegisterIndex(t *testing.T) {
 	}
 
 	// Assert
-	if reg.Definition != &target.Arch.Registers[0] {
+	if reg.Definition != target.Arch.Registers[0] {
 		t.Errorf("invalid register")
 		return
 	}
@@ -70,7 +122,7 @@ func TestReadRegisters(t *testing.T) {
 	target := &gdb.Target{
 		Name: "test",
 		Arch: gdb.Architecture{
-			Registers: []gdb.Register{
+			Registers: []*gdb.Register{
 				{
 					Name:    "int32",
 					BitSize: 32,
@@ -101,7 +153,7 @@ func TestReadRegisters(t *testing.T) {
 	{
 		reg := regs[0]
 
-		if reg.Definition != &target.Arch.Registers[0] {
+		if reg.Definition != target.Arch.Registers[0] {
 			t.Errorf("invalid register")
 			return
 		}
@@ -120,7 +172,7 @@ func TestReadRegisters(t *testing.T) {
 	{
 		reg := regs[1]
 
-		if reg.Definition != &target.Arch.Registers[1] {
+		if reg.Definition != target.Arch.Registers[1] {
 			t.Errorf("invalid register")
 			return
 		}
@@ -149,7 +201,7 @@ func TestWriteRegisterIndex(t *testing.T) {
 	target := &gdb.Target{
 		Name: "test",
 		Arch: gdb.Architecture{
-			Registers: []gdb.Register{
+			Registers: []*gdb.Register{
 				{
 					Name:    "int32",
 					BitSize: 32,
@@ -197,7 +249,7 @@ func TestWriteRegisterIndexFail(t *testing.T) {
 	target := &gdb.Target{
 		Name: "test",
 		Arch: gdb.Architecture{
-			Registers: []gdb.Register{
+			Registers: []*gdb.Register{
 				{
 					Name:    "int32",
 					BitSize: 32,
@@ -236,7 +288,7 @@ func TestWriteRegisters(t *testing.T) {
 	target := &gdb.Target{
 		Name: "test",
 		Arch: gdb.Architecture{
-			Registers: []gdb.Register{
+			Registers: []*gdb.Register{
 				{
 					Name:    "int32",
 					BitSize: 32,
@@ -258,11 +310,11 @@ func TestWriteRegisters(t *testing.T) {
 
 	regs := []gdb.RegisterValue{
 		{
-			Definition: &target.Arch.Registers[0],
+			Definition: target.Arch.Registers[0],
 			Value:      []byte("\xDE\xAD\xBE\xEF"),
 		},
 		{
-			Definition: &target.Arch.Registers[1],
+			Definition: target.Arch.Registers[1],
 			Value:      []byte("\xCA\xFE\xBA\xBE"),
 		},
 	}
@@ -300,7 +352,7 @@ func TestWriteRegistersFail(t *testing.T) {
 	target := &gdb.Target{
 		Name: "test",
 		Arch: gdb.Architecture{
-			Registers: []gdb.Register{
+			Registers: []*gdb.Register{
 				{
 					Name:    "int32",
 					BitSize: 32,
@@ -322,11 +374,11 @@ func TestWriteRegistersFail(t *testing.T) {
 
 	regs := []gdb.RegisterValue{
 		{
-			Definition: &target.Arch.Registers[0],
+			Definition: target.Arch.Registers[0],
 			Value:      []byte("\xDE\xAD\xBE\xEF"),
 		},
 		{
-			Definition: &target.Arch.Registers[1],
+			Definition: target.Arch.Registers[1],
 			Value:      []byte("\xCA\xFE\xBA\xBE"),
 		},
 	}

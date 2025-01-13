@@ -14,12 +14,17 @@ type Target struct {
 }
 
 type Architecture struct {
-	Registers []Register
+	Registers []*Register
+	PC        *Register
 }
 
 func (arch *Architecture) PointerBitSize() uint {
 	if len(arch.Registers) == 0 {
 		return 64
+	}
+
+	if arch.PC != nil {
+		return arch.PC.BitSize
 	} else {
 		return arch.Registers[0].BitSize
 	}
@@ -74,7 +79,14 @@ func ReadTarget(r io.Reader) (Target, error) {
 					return target, nil
 				}
 
-				target.Arch.Registers = append(target.Arch.Registers, reg)
+				rptr := &reg
+
+				reg.Index = uint(len(target.Arch.Registers))
+				target.Arch.Registers = append(target.Arch.Registers, rptr)
+
+				if reg.Type == "code_ptr" {
+					target.Arch.PC = rptr
+				}
 			}
 		}
 	}
@@ -106,7 +118,14 @@ func ReadArchitecture(r io.Reader) (Architecture, error) {
 					return arch, nil
 				}
 
-				arch.Registers = append(arch.Registers, reg)
+				rptr := &reg
+
+				reg.Index = uint(len(arch.Registers))
+				arch.Registers = append(arch.Registers, rptr)
+
+				if reg.Type == "code_ptr" {
+					arch.PC = rptr
+				}
 			}
 		}
 	}
