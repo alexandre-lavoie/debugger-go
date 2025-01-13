@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/alexandre-lavoie/debugger-go/core"
 	"github.com/alexandre-lavoie/debugger-go/gdb"
 )
 
@@ -18,6 +19,12 @@ func main() {
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 	}
+}
+
+func debug(ctx context.Context, dbg core.StaticDebugger) error {
+	fmt.Println("HERE!")
+
+	return nil
 }
 
 func cli(ctx context.Context) error {
@@ -34,11 +41,16 @@ func cli(ctx context.Context) error {
 		g.Interrupt(ctx)
 	}()
 
+	_, err = g.AddSoftwareBreakpoint(ctx, 0x12e62, debug)
+	if err != nil {
+		return err
+	}
+
 	if err := g.Continue(ctx); err != nil {
 		return err
 	}
 
-	if err := g.Wait(ctx); err != nil {
+	if err := g.Run(ctx); err != nil {
 		return err
 	}
 
