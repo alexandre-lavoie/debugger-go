@@ -12,23 +12,35 @@ import (
 type Target struct {
 	Name string
 	Path string
-	Arch Architecture
+	Arch *Architecture
+}
+
+func NewTarget() *Target {
+	return &Target{
+		Arch: NewArchitecture(),
+	}
 }
 
 type Architecture struct {
-	Registers []*core.Register
+	Registers core.Registers
 	PC        *core.Register
 }
 
+func NewArchitecture() *Architecture {
+	return &Architecture{
+		Registers: core.NewRegisters(),
+	}
+}
+
 func (arch *Architecture) PointerBitSize() uint {
-	if len(arch.Registers) == 0 {
+	if len(arch.Registers.List) == 0 {
 		return 64
 	}
 
 	if arch.PC != nil {
 		return arch.PC.BitSize
 	} else {
-		return arch.Registers[0].BitSize
+		return arch.Registers.List[0].BitSize
 	}
 }
 
@@ -39,8 +51,8 @@ func (arch *Architecture) FormatAddress(addr uint) string {
 	return fmt.Sprintf(format, addr)
 }
 
-func ReadTarget(r io.Reader) (Target, error) {
-	target := Target{}
+func ReadTarget(r io.Reader) (*Target, error) {
+	target := NewTarget()
 
 	decoder := xml.NewDecoder(r)
 
@@ -81,10 +93,10 @@ func ReadTarget(r io.Reader) (Target, error) {
 					return target, nil
 				}
 
-				rptr := &reg
-
-				reg.Index = uint(len(target.Arch.Registers))
-				target.Arch.Registers = append(target.Arch.Registers, rptr)
+				rptr, err := target.Arch.Registers.Add(reg.Name, reg.BitSize, reg.Type)
+				if err != nil {
+					return target, nil
+				}
 
 				if reg.Type == "code_ptr" {
 					target.Arch.PC = rptr
@@ -96,8 +108,8 @@ func ReadTarget(r io.Reader) (Target, error) {
 	return target, nil
 }
 
-func ReadArchitecture(r io.Reader) (Architecture, error) {
-	arch := Architecture{}
+func ReadArchitecture(r io.Reader) (*Architecture, error) {
+	arch := NewArchitecture()
 
 	decoder := xml.NewDecoder(r)
 
@@ -120,10 +132,10 @@ func ReadArchitecture(r io.Reader) (Architecture, error) {
 					return arch, nil
 				}
 
-				rptr := &reg
-
-				reg.Index = uint(len(arch.Registers))
-				arch.Registers = append(arch.Registers, rptr)
+				rptr, err := arch.Registers.Add(reg.Name, reg.BitSize, reg.Type)
+				if err != nil {
+					return arch, nil
+				}
 
 				if reg.Type == "code_ptr" {
 					arch.PC = rptr

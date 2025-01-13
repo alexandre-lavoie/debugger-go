@@ -38,11 +38,7 @@ func TestQueryTargetFull(t *testing.T) {
 		gdb.BuildPacket([]byte(TestFullTargetPacket)),
 	}
 
-	conn := NewTestConnection(output)
-
-	g := gdb.GDBRSP{
-		Conn: conn,
-	}
+	g := gdb.NewGDBRSP(NewTestConnection(output))
 
 	// Act
 	target, err := g.QueryTarget(context.Background())
@@ -58,13 +54,13 @@ func TestQueryTargetFull(t *testing.T) {
 		return
 	}
 
-	if len(target.Arch.Registers) != 1 {
+	if len(target.Arch.Registers.List) != 1 {
 		t.Errorf("invalid register count")
 		return
 	}
 
 	r := core.Register{Name: "int32", BitSize: 32, Type: "int32"}
-	if *target.Arch.Registers[0] != r {
+	if *target.Arch.Registers.GetIndexU(0) != r {
 		t.Errorf("invalid registers")
 		return
 	}
@@ -79,11 +75,7 @@ func TestQueryTargetPartial(t *testing.T) {
 		gdb.BuildPacket([]byte(TestArchPacket)),
 	}
 
-	conn := NewTestConnection(output)
-
-	g := gdb.GDBRSP{
-		Conn: conn,
-	}
+	g := gdb.NewGDBRSP(NewTestConnection(output))
 
 	// Act
 	target, err := g.QueryTarget(context.Background())
@@ -99,13 +91,13 @@ func TestQueryTargetPartial(t *testing.T) {
 		return
 	}
 
-	if len(target.Arch.Registers) != 1 {
+	if len(target.Arch.Registers.List) != 1 {
 		t.Errorf("invalid register count")
 		return
 	}
 
 	r := core.Register{Name: "int32", BitSize: 32, Type: "int32"}
-	if *target.Arch.Registers[0] != r {
+	if *target.Arch.Registers.GetIndexU(0) != r {
 		t.Errorf("invalid registers")
 		return
 	}

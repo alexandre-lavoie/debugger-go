@@ -14,16 +14,8 @@ func TestReadMemory(t *testing.T) {
 		gdb.BuildPacket([]byte("deadbeef")),
 	}
 
-	conn := NewTestConnection(output)
-
-	target := &gdb.Target{
-		Name: "test",
-	}
-
-	g := gdb.GDBRSP{
-		Conn:   conn,
-		Target: target,
-	}
+	g := gdb.NewGDBRSP(NewTestConnection(output))
+	g.Target = gdb.NewTarget()
 
 	// Act
 	mem, err := g.ReadMemory(context.Background(), 0, 4)
@@ -47,16 +39,8 @@ func TestReadMemoryFail(t *testing.T) {
 		gdb.BuildPacket([]byte("OK")),
 	}
 
-	conn := NewTestConnection(output)
-
-	target := &gdb.Target{
-		Name: "test",
-	}
-
-	g := gdb.GDBRSP{
-		Conn:   conn,
-		Target: target,
-	}
+	g := gdb.NewGDBRSP(NewTestConnection(output))
+	g.Target = gdb.NewTarget()
 
 	// Act
 	_, err := g.ReadMemory(context.Background(), 0, 4)
@@ -77,14 +61,8 @@ func TestWriteMemory(t *testing.T) {
 
 	conn := NewTestConnection(output)
 
-	target := &gdb.Target{
-		Name: "test",
-	}
-
-	g := gdb.GDBRSP{
-		Conn:   conn,
-		Target: target,
-	}
+	g := gdb.NewGDBRSP(conn)
+	g.Target = gdb.NewTarget()
 
 	mem := []byte("\xDE\xAD\xBE\xEF")
 
@@ -116,16 +94,8 @@ func TestWriteMemoryFail(t *testing.T) {
 		gdb.BuildPacket([]byte("E1")),
 	}
 
-	conn := NewTestConnection(output)
-
-	target := &gdb.Target{
-		Name: "test",
-	}
-
-	g := gdb.GDBRSP{
-		Conn:   conn,
-		Target: target,
-	}
+	g := gdb.NewGDBRSP(NewTestConnection(output))
+	g.Target = gdb.NewTarget()
 
 	mem := []byte("\xDE\xAD\xBE\xEF")
 

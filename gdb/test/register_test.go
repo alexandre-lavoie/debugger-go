@@ -39,36 +39,20 @@ func TestReadRegister(t *testing.T) {
 		gdb.BuildPacket([]byte("deadbeef")),
 	}
 
-	conn := NewTestConnection(output)
+	g := gdb.NewGDBRSP(NewTestConnection(output))
+	g.Target = gdb.NewTarget()
 
-	target := &gdb.Target{
-		Name: "test",
-		Arch: gdb.Architecture{
-			Registers: []*core.Register{
-				{
-					Name:    "int32",
-					Index:   0,
-					BitSize: 32,
-					Type:    "int32",
-				},
-			},
-		},
-	}
-
-	g := gdb.GDBRSP{
-		Conn:   conn,
-		Target: target,
-	}
+	def, _ := g.Target.Arch.Registers.Add("int32", 32, "int32")
 
 	// Act
-	reg, err := g.ReadRegister(context.Background(), target.Arch.Registers[0])
+	reg, err := g.ReadRegister(context.Background(), def)
 	if err != nil {
 		t.Error(err)
 		return
 	}
 
 	// Assert
-	if reg.Definition != target.Arch.Registers[0] {
+	if reg.Definition != def {
 		t.Errorf("invalid register")
 		return
 	}
@@ -91,25 +75,10 @@ func TestReadRegisterIndex(t *testing.T) {
 		gdb.BuildPacket([]byte("deadbeef")),
 	}
 
-	conn := NewTestConnection(output)
+	g := gdb.NewGDBRSP(NewTestConnection(output))
+	g.Target = gdb.NewTarget()
 
-	target := &gdb.Target{
-		Name: "test",
-		Arch: gdb.Architecture{
-			Registers: []*core.Register{
-				{
-					Name:    "int32",
-					BitSize: 32,
-					Type:    "int32",
-				},
-			},
-		},
-	}
-
-	g := gdb.GDBRSP{
-		Conn:   conn,
-		Target: target,
-	}
+	def, _ := g.Target.Arch.Registers.Add("int32", 32, "int32")
 
 	// Act
 	reg, err := g.ReadRegisterIndex(context.Background(), 0)
@@ -119,7 +88,7 @@ func TestReadRegisterIndex(t *testing.T) {
 	}
 
 	// Assert
-	if reg.Definition != target.Arch.Registers[0] {
+	if reg.Definition != def {
 		t.Errorf("invalid register")
 		return
 	}
@@ -142,30 +111,11 @@ func TestReadRegisters(t *testing.T) {
 		gdb.BuildPacket([]byte("deadbeefcafebabe")),
 	}
 
-	conn := NewTestConnection(output)
+	g := gdb.NewGDBRSP(NewTestConnection(output))
+	g.Target = gdb.NewTarget()
 
-	target := &gdb.Target{
-		Name: "test",
-		Arch: gdb.Architecture{
-			Registers: []*core.Register{
-				{
-					Name:    "int32",
-					BitSize: 32,
-					Type:    "int32",
-				},
-				{
-					Name:    "int32",
-					BitSize: 32,
-					Type:    "int32",
-				},
-			},
-		},
-	}
-
-	g := gdb.GDBRSP{
-		Conn:   conn,
-		Target: target,
-	}
+	def0, _ := g.Target.Arch.Registers.Add("int32", 32, "int32")
+	def1, _ := g.Target.Arch.Registers.Add("int32", 32, "int32")
 
 	// Act
 	regs, err := g.ReadRegisters(context.Background())
@@ -178,7 +128,7 @@ func TestReadRegisters(t *testing.T) {
 	{
 		reg := regs[0]
 
-		if reg.Definition != target.Arch.Registers[0] {
+		if reg.Definition != def0 {
 			t.Errorf("invalid register")
 			return
 		}
@@ -197,7 +147,7 @@ func TestReadRegisters(t *testing.T) {
 	{
 		reg := regs[1]
 
-		if reg.Definition != target.Arch.Registers[1] {
+		if reg.Definition != def1 {
 			t.Errorf("invalid register")
 			return
 		}
@@ -223,26 +173,13 @@ func TestWriteRegister(t *testing.T) {
 
 	conn := NewTestConnection(output)
 
-	target := &gdb.Target{
-		Name: "test",
-		Arch: gdb.Architecture{
-			Registers: []*core.Register{
-				{
-					Name:    "int32",
-					BitSize: 32,
-					Type:    "int32",
-				},
-			},
-		},
-	}
+	g := gdb.NewGDBRSP(conn)
+	g.Target = gdb.NewTarget()
 
-	g := gdb.GDBRSP{
-		Conn:   conn,
-		Target: target,
-	}
+	def, _ := g.Target.Arch.Registers.Add("int32", 32, "int32")
 
 	// Act
-	err := g.WriteRegister(context.Background(), core.RegisterValue{Definition: target.Arch.Registers[0], Value: []byte("\xDE\xAD\xBE\xEF")})
+	err := g.WriteRegister(context.Background(), core.RegisterValue{Definition: def, Value: []byte("\xDE\xAD\xBE\xEF")})
 
 	// Assert
 	if err != nil {
@@ -271,23 +208,10 @@ func TestWriteRegisterIndex(t *testing.T) {
 
 	conn := NewTestConnection(output)
 
-	target := &gdb.Target{
-		Name: "test",
-		Arch: gdb.Architecture{
-			Registers: []*core.Register{
-				{
-					Name:    "int32",
-					BitSize: 32,
-					Type:    "int32",
-				},
-			},
-		},
-	}
+	g := gdb.NewGDBRSP(conn)
+	g.Target = gdb.NewTarget()
 
-	g := gdb.GDBRSP{
-		Conn:   conn,
-		Target: target,
-	}
+	g.Target.Arch.Registers.Add("int32", 32, "int32")
 
 	// Act
 	err := g.WriteRegisterIndex(context.Background(), 0, []byte("\xDE\xAD\xBE\xEF"))
@@ -317,25 +241,10 @@ func TestWriteRegisterIndexFail(t *testing.T) {
 		gdb.BuildPacket([]byte("E1")),
 	}
 
-	conn := NewTestConnection(output)
+	g := gdb.NewGDBRSP(NewTestConnection(output))
+	g.Target = gdb.NewTarget()
 
-	target := &gdb.Target{
-		Name: "test",
-		Arch: gdb.Architecture{
-			Registers: []*core.Register{
-				{
-					Name:    "int32",
-					BitSize: 32,
-					Type:    "int32",
-				},
-			},
-		},
-	}
-
-	g := gdb.GDBRSP{
-		Conn:   conn,
-		Target: target,
-	}
+	g.Target.Arch.Registers.Add("int32", 32, "int32")
 
 	reg := []byte("\xDE\xAD\xBE\xEF")
 
@@ -358,36 +267,19 @@ func TestWriteRegisters(t *testing.T) {
 
 	conn := NewTestConnection(output)
 
-	target := &gdb.Target{
-		Name: "test",
-		Arch: gdb.Architecture{
-			Registers: []*core.Register{
-				{
-					Name:    "int32",
-					BitSize: 32,
-					Type:    "int32",
-				},
-				{
-					Name:    "int32",
-					BitSize: 32,
-					Type:    "int32",
-				},
-			},
-		},
-	}
+	g := gdb.NewGDBRSP(conn)
+	g.Target = gdb.NewTarget()
 
-	g := gdb.GDBRSP{
-		Conn:   conn,
-		Target: target,
-	}
+	g.Target.Arch.Registers.Add("int32", 32, "int32")
+	g.Target.Arch.Registers.Add("int32", 32, "int32")
 
 	regs := []core.RegisterValue{
 		{
-			Definition: target.Arch.Registers[0],
+			Definition: g.Target.Arch.Registers.GetIndexU(0),
 			Value:      []byte("\xDE\xAD\xBE\xEF"),
 		},
 		{
-			Definition: target.Arch.Registers[1],
+			Definition: g.Target.Arch.Registers.GetIndexU(1),
 			Value:      []byte("\xCA\xFE\xBA\xBE"),
 		},
 	}
@@ -420,38 +312,19 @@ func TestWriteRegistersFail(t *testing.T) {
 		gdb.BuildPacket([]byte("E1")),
 	}
 
-	conn := NewTestConnection(output)
+	g := gdb.NewGDBRSP(NewTestConnection(output))
+	g.Target = gdb.NewTarget()
 
-	target := &gdb.Target{
-		Name: "test",
-		Arch: gdb.Architecture{
-			Registers: []*core.Register{
-				{
-					Name:    "int32",
-					BitSize: 32,
-					Type:    "int32",
-				},
-				{
-					Name:    "int32",
-					BitSize: 32,
-					Type:    "int32",
-				},
-			},
-		},
-	}
-
-	g := gdb.GDBRSP{
-		Conn:   conn,
-		Target: target,
-	}
+	g.Target.Arch.Registers.Add("int32", 32, "int32")
+	g.Target.Arch.Registers.Add("int32", 32, "int32")
 
 	regs := []core.RegisterValue{
 		{
-			Definition: target.Arch.Registers[0],
+			Definition: g.Target.Arch.Registers.GetIndexU(0),
 			Value:      []byte("\xDE\xAD\xBE\xEF"),
 		},
 		{
-			Definition: target.Arch.Registers[1],
+			Definition: g.Target.Arch.Registers.GetIndexU(1),
 			Value:      []byte("\xCA\xFE\xBA\xBE"),
 		},
 	}

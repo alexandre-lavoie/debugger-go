@@ -13,9 +13,9 @@ func ReadRegisters(r io.Reader, architecture *Architecture) ([]core.RegisterValu
 		return nil, errors.New("nil architecture")
 	}
 
-	registers := make([]core.RegisterValue, len(architecture.Registers))
+	registers := make([]core.RegisterValue, len(architecture.Registers.List))
 
-	for i, def := range architecture.Registers {
+	for i, def := range architecture.Registers.List {
 		reg, err := ReadRegister(r, def)
 		if err != nil {
 			return nil, err

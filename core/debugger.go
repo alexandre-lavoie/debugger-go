@@ -2,21 +2,7 @@ package core
 
 import "context"
 
-type Debugger interface {
-	Close()
-
-	Interrupt(ctx context.Context) error
-
-	Step(ctx context.Context) error
-	StepAt(ctx context.Context, address uint) error
-
-	Continue(ctx context.Context) error
-	ContinueAt(ctx context.Context, address uint) error
-
-	Run(ctx context.Context) error
-
-	WaitForReply(ctx context.Context) (ReplyType, error)
-
+type StaticDebugger interface {
 	AddSoftwareBreakpoint(ctx context.Context, address uint, handler BreakpointHandler) (*Breakpoint, error)
 	AddHardwareBreakpoint(ctx context.Context, address uint, handler BreakpointHandler) (*Breakpoint, error)
 
@@ -36,4 +22,22 @@ type Debugger interface {
 
 	ReadMemory(ctx context.Context, address uint, length uint) ([]byte, error)
 	WriteMemory(ctx context.Context, address uint, data []byte) error
+}
+
+type Debugger interface {
+	StaticDebugger
+
+	Close()
+
+	Interrupt(ctx context.Context) error
+
+	Step(ctx context.Context) error
+	StepAt(ctx context.Context, address uint) error
+
+	Continue(ctx context.Context) error
+	ContinueAt(ctx context.Context, address uint) error
+
+	Run(ctx context.Context) error
+
+	WaitForReply(ctx context.Context) (ReplyType, error)
 }

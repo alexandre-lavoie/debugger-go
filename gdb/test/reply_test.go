@@ -15,14 +15,8 @@ func TestWaitReplyStatus(t *testing.T) {
 
 	conn := NewTestConnection(output)
 
-	target := &gdb.Target{
-		Name: "test",
-	}
-
-	g := gdb.GDBRSP{
-		Conn:   conn,
-		Target: target,
-	}
+	g := gdb.NewGDBRSP(conn)
+	g.Target = gdb.NewTarget()
 
 	// Act
 	r, err := g.WaitForReply(context.Background())

@@ -12,7 +12,7 @@ func Remote(ctx context.Context, host string, port uint16) (*GDBRSP, error) {
 		return nil, err
 	}
 
-	gdb := &GDBRSP{Conn: conn}
+	gdb := NewGDBRSP(conn)
 
 	if err := gdb.init(ctx); err != nil {
 		return nil, err
