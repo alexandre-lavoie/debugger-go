@@ -172,6 +172,8 @@ func (gdb *GDBRSP) Run(ctx context.Context) error {
 func (gdb *GDBRSP) Update(ctx context.Context, r core.ReplyType) error {
 	defer func() { gdb.Paused = false }()
 
+	var oerr error
+
 	switch r {
 	case SignalReply:
 		fallthrough
@@ -187,7 +189,7 @@ func (gdb *GDBRSP) Update(ctx context.Context, r core.ReplyType) error {
 				}
 
 				if err := b.Handler(ctx, gdb); err != nil {
-					return err
+					oerr = errors.Join(oerr, err)
 				}
 			}
 		} else if gdb.Target.Arch.PC != nil {
@@ -214,7 +216,7 @@ func (gdb *GDBRSP) Update(ctx context.Context, r core.ReplyType) error {
 				}
 
 				if err := b.Handler(ctx, gdb); err != nil {
-					return err
+					oerr = errors.Join(oerr, err)
 				}
 			}
 
@@ -228,7 +230,7 @@ func (gdb *GDBRSP) Update(ctx context.Context, r core.ReplyType) error {
 	default:
 	}
 
-	return nil
+	return oerr
 }
 
 func (gdb *GDBRSP) AddSoftwareBreakpoint(ctx context.Context, address uint, handler core.BreakpointHandler) (*core.Breakpoint, error) {
