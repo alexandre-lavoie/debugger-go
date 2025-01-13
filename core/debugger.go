@@ -5,6 +5,7 @@ import "context"
 type StaticDebugger interface {
 	AddSoftwareBreakpoint(ctx context.Context, address uint, handler BreakpointHandler) (*Breakpoint, error)
 	AddHardwareBreakpoint(ctx context.Context, address uint, handler BreakpointHandler) (*Breakpoint, error)
+	AddInterruptBreakpoint(ctx context.Context, handler BreakpointHandler) (*Breakpoint, error)
 
 	AddReadWatchpoint(ctx context.Context, address uint, length uint, handler BreakpointHandler) (*Breakpoint, error)
 	AddWriteWatchpoint(ctx context.Context, address uint, length uint, handler BreakpointHandler) (*Breakpoint, error)

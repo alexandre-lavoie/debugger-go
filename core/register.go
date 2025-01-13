@@ -1,6 +1,9 @@
 package core
 
-import "sync"
+import (
+	"fmt"
+	"sync"
+)
 
 type Register struct {
 	Name    string
@@ -71,4 +74,19 @@ func (r *RegisterValue) ToUint() uint {
 	}
 
 	return o
+}
+
+func (r *RegisterValue) ToString() string {
+	switch r.Definition.Type {
+	case "int32":
+		fallthrough
+	case "int":
+		fallthrough
+	case "code_ptr":
+		fallthrough
+	case "data_ptr":
+		return fmt.Sprintf("%x", r.ToUint())
+	default:
+		return fmt.Sprintf("%v", r.Value)
+	}
 }

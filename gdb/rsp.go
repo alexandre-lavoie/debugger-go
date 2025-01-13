@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/alexandre-lavoie/debugger-go/core"
@@ -28,9 +29,12 @@ type GDBRSP struct {
 	ThreadID    uint32
 	Breakpoints core.Breakpoints
 
+	Paused     bool
 	Stopped    bool
 	ExitCode   uint
 	SignalCode uint
+
+	connMutex sync.Mutex
 }
 
 var _ core.Debugger = &GDBRSP{}
@@ -73,15 +77,18 @@ func (gdb *GDBRSP) Close() {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(500)*time.Millisecond)
 	defer cancel()
 
-	gdb.SendCommand(ctx, "D")
+	gdb.SendCommandAsync(ctx, "D")
 
 	gdb.Conn.Close()
 }
 
 func (gdb *GDBRSP) Interrupt(ctx context.Context) error {
-	command := "\x03"
+	gdb.connMutex.Lock()
+	defer gdb.connMutex.Unlock()
 
-	if err := gdb.SendCommand(ctx, command); err != nil {
+	gdb.Paused = true
+
+	if _, err := gdb.Conn.Write([]byte{0x3}); err != nil {
 		return err
 	}
 
@@ -91,46 +98,70 @@ func (gdb *GDBRSP) Interrupt(ctx context.Context) error {
 func (gdb *GDBRSP) Step(ctx context.Context) error {
 	command := "s"
 
-	if err := gdb.SendCommand(ctx, command); err != nil {
+	res, err := gdb.SendCommandResponseAsync(ctx, command)
+	if err != nil {
 		return err
 	}
 
-	return nil
+	r, err := gdb.ProcessReply(ctx, res)
+	if err != nil {
+		return err
+	}
+
+	return gdb.Update(ctx, r)
 }
 
 func (gdb *GDBRSP) StepAt(ctx context.Context, address uint) error {
 	command := fmt.Sprintf("s%s", gdb.Target.Arch.FormatAddress(address))
 
-	if err := gdb.SendCommand(ctx, command); err != nil {
+	res, err := gdb.SendCommandResponseAsync(ctx, command)
+	if err != nil {
 		return err
 	}
 
-	return nil
+	r, err := gdb.ProcessReply(ctx, res)
+	if err != nil {
+		return err
+	}
+
+	return gdb.Update(ctx, r)
 }
 
 func (gdb *GDBRSP) Continue(ctx context.Context) error {
 	command := "c"
 
-	if err := gdb.SendCommand(ctx, command); err != nil {
+	res, err := gdb.SendCommandResponseAsync(ctx, command)
+	if err != nil {
 		return err
 	}
 
-	return nil
+	r, err := gdb.ProcessReply(ctx, res)
+	if err != nil {
+		return err
+	}
+
+	return gdb.Update(ctx, r)
 }
 
 func (gdb *GDBRSP) ContinueAt(ctx context.Context, address uint) error {
 	command := fmt.Sprintf("c%s", gdb.Target.Arch.FormatAddress(address))
 
-	if err := gdb.SendCommand(ctx, command); err != nil {
+	res, err := gdb.SendCommandResponseAsync(ctx, command)
+	if err != nil {
 		return err
 	}
 
-	return nil
+	r, err := gdb.ProcessReply(ctx, res)
+	if err != nil {
+		return err
+	}
+
+	return gdb.Update(ctx, r)
 }
 
 func (gdb *GDBRSP) Run(ctx context.Context) error {
 	for !gdb.Stopped {
-		if err := gdb.Update(ctx); err != nil {
+		if err := gdb.Continue(ctx); err != nil {
 			return err
 		}
 	}
@@ -138,17 +169,28 @@ func (gdb *GDBRSP) Run(ctx context.Context) error {
 	return nil
 }
 
-func (gdb *GDBRSP) Update(ctx context.Context) error {
-	r, err := gdb.WaitForReply(ctx)
-	if err != nil {
-		return err
-	}
+func (gdb *GDBRSP) Update(ctx context.Context, r core.ReplyType) error {
+	defer func() { gdb.Paused = false }()
 
 	switch r {
 	case SignalReply:
 		fallthrough
 	case StatusReply:
-		if gdb.Target.Arch.PC != nil {
+		if gdb.Paused {
+			for _, b := range gdb.Breakpoints.List {
+				if b == nil {
+					continue
+				}
+
+				if b.Type != InterruptBreakpoint {
+					continue
+				}
+
+				if err := b.Handler(ctx, gdb); err != nil {
+					return err
+				}
+			}
+		} else if gdb.Target.Arch.PC != nil {
 			val, err := gdb.ReadRegister(ctx, gdb.Target.Arch.PC)
 			if err != nil {
 				return err
@@ -178,20 +220,12 @@ func (gdb *GDBRSP) Update(ctx context.Context) error {
 
 			// Skip over breakpoint to prevent debugger from getting stuck
 			if step {
-				if err := gdb.Step(ctx); err != nil {
-					return err
-				}
-
-				if _, err := gdb.WaitForReply(ctx); err != nil {
+				if _, err := gdb.SendCommandResponseSync(ctx, "s"); err != nil {
 					return err
 				}
 			}
 		}
 	default:
-	}
-
-	if err := gdb.Continue(ctx); err != nil {
-		return err
 	}
 
 	return nil
@@ -203,6 +237,10 @@ func (gdb *GDBRSP) AddSoftwareBreakpoint(ctx context.Context, address uint, hand
 
 func (gdb *GDBRSP) AddHardwareBreakpoint(ctx context.Context, address uint, handler core.BreakpointHandler) (*core.Breakpoint, error) {
 	return gdb.AddBreakpoint(ctx, HardwareBreakpoint, address, 1, handler)
+}
+
+func (gdb *GDBRSP) AddInterruptBreakpoint(ctx context.Context, handler core.BreakpointHandler) (*core.Breakpoint, error) {
+	return gdb.AddBreakpoint(ctx, InterruptBreakpoint, 0, 0, handler)
 }
 
 func (gdb *GDBRSP) AddReadWatchpoint(ctx context.Context, address uint, length uint, handler core.BreakpointHandler) (*core.Breakpoint, error) {
@@ -223,14 +261,10 @@ func (gdb *GDBRSP) AddBreakpoint(ctx context.Context, t core.BreakpointType, add
 		return b, err
 	}
 
-	if update {
+	if update && b.Type != InterruptBreakpoint {
 		command := fmt.Sprintf("Z%x,%s,%x", t, gdb.Target.Arch.FormatAddress(address), byteLength)
 
-		if err := gdb.SendCommand(ctx, command); err != nil {
-			return b, err
-		}
-
-		res, err := gdb.RecvResponse(ctx)
+		res, err := gdb.SendCommandResponseSync(ctx, command)
 		if err != nil {
 			return b, err
 		}
@@ -253,14 +287,10 @@ func (gdb *GDBRSP) RemoveBreakpoint(ctx context.Context, b *core.Breakpoint) err
 		return err
 	}
 
-	if update {
+	if update && b.Type != InterruptBreakpoint {
 		command := fmt.Sprintf("z%x,%s,%x", b.Type, gdb.Target.Arch.FormatAddress(b.Address), b.Length)
 
-		if err := gdb.SendCommand(ctx, command); err != nil {
-			return err
-		}
-
-		res, err := gdb.RecvResponse(ctx)
+		res, err := gdb.SendCommandResponseSync(ctx, command)
 		if err != nil {
 			return err
 		}
@@ -344,11 +374,7 @@ func (gdb *GDBRSP) ProcessReply(ctx context.Context, p []byte) (core.ReplyType, 
 func (gdb *GDBRSP) QuerySupported(ctx context.Context) (GDBFeatures, error) {
 	command := "qSupported"
 
-	if err := gdb.SendCommand(ctx, command); err != nil {
-		return nil, err
-	}
-
-	res, err := gdb.RecvResponse(ctx)
+	res, err := gdb.SendCommandResponseSync(ctx, command)
 	if err != nil {
 		return nil, err
 	}
@@ -407,11 +433,7 @@ func (gdb *GDBRSP) ReadFeature(ctx context.Context, path string) ([]byte, error)
 	for offset := 0; ; offset += size {
 		command := fmt.Sprintf("qXfer:features:read:%s:%x,%x", path, offset, size)
 
-		if err := gdb.SendCommand(ctx, command); err != nil {
-			return nil, err
-		}
-
-		res, err := gdb.RecvResponse(ctx)
+		res, err := gdb.SendCommandResponseSync(ctx, command)
 		if err != nil {
 			return nil, err
 		}
@@ -446,11 +468,7 @@ func (gdb *GDBRSP) ReadRegister(ctx context.Context, reg *core.Register) (core.R
 
 	command := fmt.Sprintf("p%x", reg.Index)
 
-	if err := gdb.SendCommand(ctx, command); err != nil {
-		return core.RegisterValue{}, err
-	}
-
-	res, err := gdb.RecvResponse(ctx)
+	res, err := gdb.SendCommandResponseSync(ctx, command)
 	if err != nil {
 		return core.RegisterValue{}, err
 	}
@@ -466,11 +484,7 @@ func (gdb *GDBRSP) ReadRegister(ctx context.Context, reg *core.Register) (core.R
 func (gdb *GDBRSP) ReadRegisterIndex(ctx context.Context, index uint) (core.RegisterValue, error) {
 	command := fmt.Sprintf("p%x", index)
 
-	if err := gdb.SendCommand(ctx, command); err != nil {
-		return core.RegisterValue{}, err
-	}
-
-	res, err := gdb.RecvResponse(ctx)
+	res, err := gdb.SendCommandResponseSync(ctx, command)
 	if err != nil {
 		return core.RegisterValue{}, err
 	}
@@ -503,11 +517,7 @@ func (gdb *GDBRSP) ReadRegisters(ctx context.Context) ([]core.RegisterValue, err
 func (gdb *GDBRSP) ReadRegistersRaw(ctx context.Context) ([]byte, error) {
 	command := "g"
 
-	if err := gdb.SendCommand(ctx, command); err != nil {
-		return nil, err
-	}
-
-	res, err := gdb.RecvResponse(ctx)
+	res, err := gdb.SendCommandResponseSync(ctx, command)
 	if err != nil {
 		return nil, err
 	}
@@ -533,11 +543,7 @@ func (gdb *GDBRSP) WriteRegister(ctx context.Context, regVal core.RegisterValue)
 
 	command := fmt.Sprintf("P%x=%s", regVal.Definition.Index, x)
 
-	if err := gdb.SendCommand(ctx, command); err != nil {
-		return err
-	}
-
-	res, err := gdb.RecvResponse(ctx)
+	res, err := gdb.SendCommandResponseSync(ctx, command)
 	if err != nil {
 		return err
 	}
@@ -555,11 +561,7 @@ func (gdb *GDBRSP) WriteRegisterIndex(ctx context.Context, index uint, data []by
 
 	command := fmt.Sprintf("P%x=%s", index, x)
 
-	if err := gdb.SendCommand(ctx, command); err != nil {
-		return err
-	}
-
-	res, err := gdb.RecvResponse(ctx)
+	res, err := gdb.SendCommandResponseSync(ctx, command)
 	if err != nil {
 		return err
 	}
@@ -583,11 +585,7 @@ func (gdb *GDBRSP) WriteRegisters(ctx context.Context, regs []core.RegisterValue
 
 	command := fmt.Sprintf("G%s", x)
 
-	if err := gdb.SendCommand(ctx, command); err != nil {
-		return err
-	}
-
-	res, err := gdb.RecvResponse(ctx)
+	res, err := gdb.SendCommandResponseSync(ctx, command)
 	if err != nil {
 		return err
 	}
@@ -602,11 +600,7 @@ func (gdb *GDBRSP) WriteRegisters(ctx context.Context, regs []core.RegisterValue
 func (gdb *GDBRSP) ReadMemory(ctx context.Context, address uint, length uint) ([]byte, error) {
 	command := fmt.Sprintf("m%s,%x", gdb.Target.Arch.FormatAddress(address), length)
 
-	if err := gdb.SendCommand(ctx, command); err != nil {
-		return nil, err
-	}
-
-	res, err := gdb.RecvResponse(ctx)
+	res, err := gdb.SendCommandResponseSync(ctx, command)
 	if err != nil {
 		return nil, err
 	}
@@ -628,11 +622,7 @@ func (gdb *GDBRSP) WriteMemory(ctx context.Context, address uint, data []byte) e
 
 	command := fmt.Sprintf("M%s,%x:%s", gdb.Target.Arch.FormatAddress(address), len(data), x)
 
-	if err := gdb.SendCommand(ctx, command); err != nil {
-		return err
-	}
-
-	res, err := gdb.RecvResponse(ctx)
+	res, err := gdb.SendCommandResponseSync(ctx, command)
 	if err != nil {
 		return err
 	}
@@ -644,11 +634,33 @@ func (gdb *GDBRSP) WriteMemory(ctx context.Context, address uint, data []byte) e
 	}
 }
 
-func (gdb *GDBRSP) SendCommand(ctx context.Context, data string) error {
-	return gdb.SendRawCommand(ctx, []byte(data))
+func (gdb *GDBRSP) SendCommandAsync(ctx context.Context, data string) error {
+	gdb.connMutex.Lock()
+	defer gdb.connMutex.Unlock()
+
+	return gdb.SendCommandUnsafe(ctx, []byte(data))
 }
 
-func (gdb *GDBRSP) SendRawCommand(ctx context.Context, data []byte) error {
+func (gdb *GDBRSP) SendCommandResponseSync(ctx context.Context, data string) ([]byte, error) {
+	gdb.connMutex.Lock()
+	defer gdb.connMutex.Unlock()
+
+	if err := gdb.SendCommandUnsafe(ctx, []byte(data)); err != nil {
+		return nil, err
+	}
+
+	return gdb.RecvResponse(ctx)
+}
+
+func (gdb *GDBRSP) SendCommandResponseAsync(ctx context.Context, data string) ([]byte, error) {
+	if err := gdb.SendCommandAsync(ctx, data); err != nil {
+		return nil, err
+	}
+
+	return gdb.RecvResponse(ctx)
+}
+
+func (gdb *GDBRSP) SendCommandUnsafe(ctx context.Context, data []byte) error {
 	if t, ok := ctx.Deadline(); ok {
 		gdb.Conn.SetDeadline(t)
 	} else {

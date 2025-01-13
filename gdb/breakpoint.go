@@ -8,4 +8,5 @@ const (
 	WriteWatchpoint
 	ReadWatchpoint
 	AccessWatchpoint
+	InterruptBreakpoint = 0xFF
 )
