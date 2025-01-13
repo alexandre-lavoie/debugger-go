@@ -23,7 +23,7 @@ func (r *RegisterValue) ToUint() uint {
 
 	for i := len(r.Value) - 1; i >= 0; i-- {
 		o <<= 8
-		o &= uint(r.Value[i])
+		o |= uint(r.Value[i])
 	}
 
 	return o

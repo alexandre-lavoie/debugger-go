@@ -77,6 +77,26 @@ func (gdb *GDBRSP) Interrupt(ctx context.Context) error {
 	return nil
 }
 
+func (gdb *GDBRSP) Step(ctx context.Context) error {
+	command := "s"
+
+	if err := gdb.SendCommand(ctx, command); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (gdb *GDBRSP) StepAt(ctx context.Context, address uint) error {
+	command := fmt.Sprintf("s%s", gdb.Target.Arch.FormatAddress(address))
+
+	if err := gdb.SendCommand(ctx, command); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (gdb *GDBRSP) Continue(ctx context.Context) error {
 	command := "c"
 
@@ -104,8 +124,6 @@ func (gdb *GDBRSP) Run(ctx context.Context) error {
 			return err
 		}
 
-		ctn := true
-
 		switch r {
 		case SignalReply:
 			fallthrough
@@ -117,6 +135,7 @@ func (gdb *GDBRSP) Run(ctx context.Context) error {
 				}
 
 				ptr := val.ToUint()
+
 				for _, b := range gdb.Breakpoints {
 					if b == nil {
 						continue
@@ -126,15 +145,26 @@ func (gdb *GDBRSP) Run(ctx context.Context) error {
 						continue
 					}
 
-					if ptr < b.Address || b.Address+b.Length >= ptr {
+					if ptr < b.Address || ptr >= b.Address+b.Length {
 						continue
 					}
 
-					if err := b.Handler(ctx); err != nil {
+					if err := b.Handler(ctx, gdb); err != nil {
 						return err
 					}
 
-					ctn = false
+					// Skip over breakpoint to prevent debugger from getting stuck
+					switch b.Type {
+					case SoftwareBreakpoint:
+					case HardwareBreakpoint:
+						if err := gdb.Step(ctx); err != nil {
+							return err
+						}
+
+						if _, err := gdb.WaitReply(ctx); err != nil {
+							return err
+						}
+					}
 
 					break
 				}
@@ -142,15 +172,32 @@ func (gdb *GDBRSP) Run(ctx context.Context) error {
 		default:
 		}
 
-		if ctn {
-			// Getting stuck here
-			if err := gdb.Continue(ctx); err != nil {
-				return err
-			}
+		if err := gdb.Continue(ctx); err != nil {
+			return err
 		}
 	}
 
 	return nil
+}
+
+func (gdb *GDBRSP) AddSoftwareBreakpoint(ctx context.Context, address uint, handler BreakpointHandler) (*Breakpoint, error) {
+	return gdb.AddBreakpoint(ctx, SoftwareBreakpoint, address, 1, handler)
+}
+
+func (gdb *GDBRSP) AddHardwareBreakpoint(ctx context.Context, address uint, handler BreakpointHandler) (*Breakpoint, error) {
+	return gdb.AddBreakpoint(ctx, HardwareBreakpoint, address, 1, handler)
+}
+
+func (gdb *GDBRSP) AddReadWatchpoint(ctx context.Context, address uint, length uint, handler BreakpointHandler) (*Breakpoint, error) {
+	return gdb.AddBreakpoint(ctx, ReadWatchpoint, address, length, handler)
+}
+
+func (gdb *GDBRSP) AddWriteWatchpoint(ctx context.Context, address uint, length uint, handler BreakpointHandler) (*Breakpoint, error) {
+	return gdb.AddBreakpoint(ctx, WriteWatchpoint, address, length, handler)
+}
+
+func (gdb *GDBRSP) AddAccessWatchpoint(ctx context.Context, address uint, length uint, handler BreakpointHandler) (*Breakpoint, error) {
+	return gdb.AddBreakpoint(ctx, AccessWatchpoint, address, length, handler)
 }
 
 func (gdb *GDBRSP) AddBreakpoint(ctx context.Context, t BreakpointType, address uint, byteLength uint, handler BreakpointHandler) (*Breakpoint, error) {

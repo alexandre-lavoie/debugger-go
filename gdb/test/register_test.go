@@ -7,6 +7,30 @@ import (
 	"github.com/alexandre-lavoie/debugger-go/gdb"
 )
 
+func TestRegisterToUint(t *testing.T) {
+	// Arrange
+	def := &gdb.Register{
+		Name:    "int32",
+		Index:   0,
+		BitSize: 32,
+		Type:    "int32",
+	}
+
+	reg := gdb.RegisterValue{
+		Definition: def,
+		Value:      []byte{0x1, 0x2, 0x3, 0x4},
+	}
+
+	// Act
+	v := reg.ToUint()
+
+	// Assert
+	if v != 0x04030201 {
+		t.Error("invalid value")
+		return
+	}
+}
+
 func TestReadRegister(t *testing.T) {
 	// Arrange
 	output := [][]byte{

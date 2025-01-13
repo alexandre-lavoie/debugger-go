@@ -12,7 +12,7 @@ const (
 	AccessWatchpoint
 )
 
-type BreakpointHandler func(ctx context.Context) error
+type BreakpointHandler func(ctx context.Context, g *GDBRSP) error
 
 type Breakpoint struct {
 	Type    BreakpointType
