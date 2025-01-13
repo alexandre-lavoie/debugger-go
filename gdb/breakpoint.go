@@ -1,22 +1,11 @@
 package gdb
 
-import "context"
-
-type BreakpointType uint8
+import "github.com/alexandre-lavoie/debugger-go/core"
 
 const (
-	SoftwareBreakpoint = iota
+	SoftwareBreakpoint core.BreakpointType = iota
 	HardwareBreakpoint
 	WriteWatchpoint
 	ReadWatchpoint
 	AccessWatchpoint
 )
-
-type BreakpointHandler func(ctx context.Context, g *GDBRSP) error
-
-type Breakpoint struct {
-	Type    BreakpointType
-	Address uint
-	Length  uint
-	Handler BreakpointHandler
-}

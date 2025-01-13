@@ -1,12 +1,12 @@
 package gdb
 
-type ReplyType uint8
+import "github.com/alexandre-lavoie/debugger-go/core"
 
 const (
-	SignalReply    ReplyType = 'S'
-	StatusReply    ReplyType = 'T'
-	ExitReply      ReplyType = 'W'
-	TerminateReply ReplyType = 'X'
-	DataReply      ReplyType = 'O'
-	InvalidReply   ReplyType = '!'
+	SignalReply    core.ReplyType = 'S'
+	StatusReply    core.ReplyType = 'T'
+	ExitReply      core.ReplyType = 'W'
+	TerminateReply core.ReplyType = 'X'
+	DataReply      core.ReplyType = 'O'
+	InvalidReply   core.ReplyType = '!'
 )

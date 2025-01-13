@@ -4,19 +4,20 @@ import (
 	"context"
 	"testing"
 
+	"github.com/alexandre-lavoie/debugger-go/core"
 	"github.com/alexandre-lavoie/debugger-go/gdb"
 )
 
 func TestRegisterToUint(t *testing.T) {
 	// Arrange
-	def := &gdb.Register{
+	def := &core.Register{
 		Name:    "int32",
 		Index:   0,
 		BitSize: 32,
 		Type:    "int32",
 	}
 
-	reg := gdb.RegisterValue{
+	reg := core.RegisterValue{
 		Definition: def,
 		Value:      []byte{0x1, 0x2, 0x3, 0x4},
 	}
@@ -43,7 +44,7 @@ func TestReadRegister(t *testing.T) {
 	target := &gdb.Target{
 		Name: "test",
 		Arch: gdb.Architecture{
-			Registers: []*gdb.Register{
+			Registers: []*core.Register{
 				{
 					Name:    "int32",
 					Index:   0,
@@ -95,7 +96,7 @@ func TestReadRegisterIndex(t *testing.T) {
 	target := &gdb.Target{
 		Name: "test",
 		Arch: gdb.Architecture{
-			Registers: []*gdb.Register{
+			Registers: []*core.Register{
 				{
 					Name:    "int32",
 					BitSize: 32,
@@ -146,7 +147,7 @@ func TestReadRegisters(t *testing.T) {
 	target := &gdb.Target{
 		Name: "test",
 		Arch: gdb.Architecture{
-			Registers: []*gdb.Register{
+			Registers: []*core.Register{
 				{
 					Name:    "int32",
 					BitSize: 32,
@@ -213,6 +214,54 @@ func TestReadRegisters(t *testing.T) {
 	}
 }
 
+func TestWriteRegister(t *testing.T) {
+	// Arrange
+	output := [][]byte{
+		[]byte("+"),
+		gdb.BuildPacket([]byte("OK")),
+	}
+
+	conn := NewTestConnection(output)
+
+	target := &gdb.Target{
+		Name: "test",
+		Arch: gdb.Architecture{
+			Registers: []*core.Register{
+				{
+					Name:    "int32",
+					BitSize: 32,
+					Type:    "int32",
+				},
+			},
+		},
+	}
+
+	g := gdb.GDBRSP{
+		Conn:   conn,
+		Target: target,
+	}
+
+	// Act
+	err := g.WriteRegister(context.Background(), core.RegisterValue{Definition: target.Arch.Registers[0], Value: []byte("\xDE\xAD\xBE\xEF")})
+
+	// Assert
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	data, err := gdb.ReadPacket(conn.Output)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	if string(data) != "P0=deadbeef" {
+		t.Errorf("invalid message")
+		return
+	}
+}
+
 func TestWriteRegisterIndex(t *testing.T) {
 	// Arrange
 	output := [][]byte{
@@ -225,7 +274,7 @@ func TestWriteRegisterIndex(t *testing.T) {
 	target := &gdb.Target{
 		Name: "test",
 		Arch: gdb.Architecture{
-			Registers: []*gdb.Register{
+			Registers: []*core.Register{
 				{
 					Name:    "int32",
 					BitSize: 32,
@@ -273,7 +322,7 @@ func TestWriteRegisterIndexFail(t *testing.T) {
 	target := &gdb.Target{
 		Name: "test",
 		Arch: gdb.Architecture{
-			Registers: []*gdb.Register{
+			Registers: []*core.Register{
 				{
 					Name:    "int32",
 					BitSize: 32,
@@ -312,7 +361,7 @@ func TestWriteRegisters(t *testing.T) {
 	target := &gdb.Target{
 		Name: "test",
 		Arch: gdb.Architecture{
-			Registers: []*gdb.Register{
+			Registers: []*core.Register{
 				{
 					Name:    "int32",
 					BitSize: 32,
@@ -332,7 +381,7 @@ func TestWriteRegisters(t *testing.T) {
 		Target: target,
 	}
 
-	regs := []gdb.RegisterValue{
+	regs := []core.RegisterValue{
 		{
 			Definition: target.Arch.Registers[0],
 			Value:      []byte("\xDE\xAD\xBE\xEF"),
@@ -376,7 +425,7 @@ func TestWriteRegistersFail(t *testing.T) {
 	target := &gdb.Target{
 		Name: "test",
 		Arch: gdb.Architecture{
-			Registers: []*gdb.Register{
+			Registers: []*core.Register{
 				{
 					Name:    "int32",
 					BitSize: 32,
@@ -396,7 +445,7 @@ func TestWriteRegistersFail(t *testing.T) {
 		Target: target,
 	}
 
-	regs := []gdb.RegisterValue{
+	regs := []core.RegisterValue{
 		{
 			Definition: target.Arch.Registers[0],
 			Value:      []byte("\xDE\xAD\xBE\xEF"),

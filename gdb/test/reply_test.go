@@ -25,7 +25,7 @@ func TestWaitReplyStatus(t *testing.T) {
 	}
 
 	// Act
-	r, err := g.WaitReply(context.Background())
+	r, err := g.WaitForReply(context.Background())
 
 	// Assert
 	if err != nil {

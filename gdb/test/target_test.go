@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/alexandre-lavoie/debugger-go/core"
 	"github.com/alexandre-lavoie/debugger-go/gdb"
 )
 
@@ -62,7 +63,7 @@ func TestQueryTargetFull(t *testing.T) {
 		return
 	}
 
-	r := gdb.Register{Name: "int32", BitSize: 32, Type: "int32"}
+	r := core.Register{Name: "int32", BitSize: 32, Type: "int32"}
 	if *target.Arch.Registers[0] != r {
 		t.Errorf("invalid registers")
 		return
@@ -103,7 +104,7 @@ func TestQueryTargetPartial(t *testing.T) {
 		return
 	}
 
-	r := gdb.Register{Name: "int32", BitSize: 32, Type: "int32"}
+	r := core.Register{Name: "int32", BitSize: 32, Type: "int32"}
 	if *target.Arch.Registers[0] != r {
 		t.Errorf("invalid registers")
 		return

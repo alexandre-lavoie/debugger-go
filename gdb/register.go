@@ -4,37 +4,16 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
+
+	"github.com/alexandre-lavoie/debugger-go/core"
 )
 
-type Register struct {
-	Name    string
-	Index   uint
-	BitSize uint
-	Type    string
-}
-
-type RegisterValue struct {
-	Definition *Register
-	Value      []byte
-}
-
-func (r *RegisterValue) ToUint() uint {
-	o := uint(0)
-
-	for i := len(r.Value) - 1; i >= 0; i-- {
-		o <<= 8
-		o |= uint(r.Value[i])
-	}
-
-	return o
-}
-
-func ReadRegisters(r io.Reader, architecture *Architecture) ([]RegisterValue, error) {
+func ReadRegisters(r io.Reader, architecture *Architecture) ([]core.RegisterValue, error) {
 	if architecture == nil {
 		return nil, errors.New("nil architecture")
 	}
 
-	registers := make([]RegisterValue, len(architecture.Registers))
+	registers := make([]core.RegisterValue, len(architecture.Registers))
 
 	for i, def := range architecture.Registers {
 		reg, err := ReadRegister(r, def)
@@ -48,12 +27,12 @@ func ReadRegisters(r io.Reader, architecture *Architecture) ([]RegisterValue, er
 	return registers, nil
 }
 
-func ReadRegister(r io.Reader, definition *Register) (RegisterValue, error) {
+func ReadRegister(r io.Reader, definition *core.Register) (core.RegisterValue, error) {
 	if definition == nil {
-		return RegisterValue{}, errors.New("nil definition")
+		return core.RegisterValue{}, errors.New("nil definition")
 	}
 
-	reg := RegisterValue{Definition: definition}
+	reg := core.RegisterValue{Definition: definition}
 
 	reg.Value = make([]byte, reg.Definition.BitSize/8)
 
@@ -64,7 +43,7 @@ func ReadRegister(r io.Reader, definition *Register) (RegisterValue, error) {
 	return reg, nil
 }
 
-func WriteRegisters(w io.Writer, regs []RegisterValue) error {
+func WriteRegisters(w io.Writer, regs []core.RegisterValue) error {
 	for _, reg := range regs {
 		if err := WriteRegister(w, &reg); err != nil {
 			return err
@@ -74,7 +53,7 @@ func WriteRegisters(w io.Writer, regs []RegisterValue) error {
 	return nil
 }
 
-func WriteRegister(w io.Writer, reg *RegisterValue) error {
+func WriteRegister(w io.Writer, reg *core.RegisterValue) error {
 	if _, err := w.Write(reg.Value); err != nil {
 		return err
 	}

@@ -1,6 +1,6 @@
 # debugger-go
 
-Go clients for software debuggers.
+Go clients for debuggers.
 
 ## GDB package
 

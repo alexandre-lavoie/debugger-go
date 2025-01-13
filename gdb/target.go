@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+
+	"github.com/alexandre-lavoie/debugger-go/core"
 )
 
 type Target struct {
@@ -14,8 +16,8 @@ type Target struct {
 }
 
 type Architecture struct {
-	Registers []*Register
-	PC        *Register
+	Registers []*core.Register
+	PC        *core.Register
 }
 
 func (arch *Architecture) PointerBitSize() uint {
@@ -158,8 +160,8 @@ func parseArchitectureName(decoder *xml.Decoder) (string, error) {
 	}
 }
 
-func parseRegister(el xml.StartElement) (Register, error) {
-	reg := Register{}
+func parseRegister(el xml.StartElement) (core.Register, error) {
+	reg := core.Register{}
 
 	for _, attr := range el.Attr {
 		switch attr.Name.Local {

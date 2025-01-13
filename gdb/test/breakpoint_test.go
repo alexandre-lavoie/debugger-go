@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/alexandre-lavoie/debugger-go/core"
 	"github.com/alexandre-lavoie/debugger-go/gdb"
 )
 
@@ -109,12 +110,12 @@ func TestRemoveBreakpoint(t *testing.T) {
 		Name: "test",
 	}
 
-	b := &gdb.Breakpoint{}
+	b := &core.Breakpoint{}
 
 	g := gdb.GDBRSP{
 		Conn:        conn,
 		Target:      target,
-		Breakpoints: []*gdb.Breakpoint{b},
+		Breakpoints: []*core.Breakpoint{b},
 	}
 
 	// Act
@@ -145,12 +146,12 @@ func TestRemoveBreakpointFail(t *testing.T) {
 		Name: "test",
 	}
 
-	b := &gdb.Breakpoint{}
+	b := &core.Breakpoint{}
 
 	g := gdb.GDBRSP{
 		Conn:        conn,
 		Target:      target,
-		Breakpoints: []*gdb.Breakpoint{b},
+		Breakpoints: []*core.Breakpoint{b},
 	}
 
 	// Act
@@ -181,12 +182,12 @@ func TestRemoveBreakpointUnimplemented(t *testing.T) {
 		Name: "test",
 	}
 
-	b := &gdb.Breakpoint{}
+	b := &core.Breakpoint{}
 
 	g := gdb.GDBRSP{
 		Conn:        conn,
 		Target:      target,
-		Breakpoints: []*gdb.Breakpoint{b},
+		Breakpoints: []*core.Breakpoint{b},
 	}
 
 	// Act

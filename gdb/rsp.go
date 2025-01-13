@@ -10,6 +10,8 @@ import (
 	"io"
 	"strings"
 	"time"
+
+	"github.com/alexandre-lavoie/debugger-go/core"
 )
 
 type GDBRSP struct {
@@ -18,12 +20,14 @@ type GDBRSP struct {
 	Target *Target
 
 	ThreadID    uint32
-	Breakpoints []*Breakpoint
+	Breakpoints []*core.Breakpoint
 
 	Stopped    bool
 	ExitCode   uint
 	SignalCode uint
 }
+
+var _ core.Debugger = &GDBRSP{}
 
 type GDBConnection interface {
 	io.ReadWriteCloser
@@ -49,11 +53,11 @@ func (gdb *GDBRSP) init(ctx context.Context) error {
 	return nil
 }
 
-func (gdb *GDBRSP) recvConnect(ctx context.Context) (ReplyType, error) {
+func (gdb *GDBRSP) recvConnect(ctx context.Context) (core.ReplyType, error) {
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(500)*time.Millisecond)
 	defer cancel()
 
-	r, _ := gdb.WaitReply(ctx)
+	r, _ := gdb.WaitForReply(ctx)
 
 	return r, nil
 }
@@ -119,7 +123,7 @@ func (gdb *GDBRSP) ContinueAt(ctx context.Context, address uint) error {
 
 func (gdb *GDBRSP) Run(ctx context.Context) error {
 	for !gdb.Stopped {
-		r, err := gdb.WaitReply(ctx)
+		r, err := gdb.WaitForReply(ctx)
 		if err != nil {
 			return err
 		}
@@ -161,7 +165,7 @@ func (gdb *GDBRSP) Run(ctx context.Context) error {
 							return err
 						}
 
-						if _, err := gdb.WaitReply(ctx); err != nil {
+						if _, err := gdb.WaitForReply(ctx); err != nil {
 							return err
 						}
 					}
@@ -180,27 +184,27 @@ func (gdb *GDBRSP) Run(ctx context.Context) error {
 	return nil
 }
 
-func (gdb *GDBRSP) AddSoftwareBreakpoint(ctx context.Context, address uint, handler BreakpointHandler) (*Breakpoint, error) {
+func (gdb *GDBRSP) AddSoftwareBreakpoint(ctx context.Context, address uint, handler core.BreakpointHandler) (*core.Breakpoint, error) {
 	return gdb.AddBreakpoint(ctx, SoftwareBreakpoint, address, 1, handler)
 }
 
-func (gdb *GDBRSP) AddHardwareBreakpoint(ctx context.Context, address uint, handler BreakpointHandler) (*Breakpoint, error) {
+func (gdb *GDBRSP) AddHardwareBreakpoint(ctx context.Context, address uint, handler core.BreakpointHandler) (*core.Breakpoint, error) {
 	return gdb.AddBreakpoint(ctx, HardwareBreakpoint, address, 1, handler)
 }
 
-func (gdb *GDBRSP) AddReadWatchpoint(ctx context.Context, address uint, length uint, handler BreakpointHandler) (*Breakpoint, error) {
+func (gdb *GDBRSP) AddReadWatchpoint(ctx context.Context, address uint, length uint, handler core.BreakpointHandler) (*core.Breakpoint, error) {
 	return gdb.AddBreakpoint(ctx, ReadWatchpoint, address, length, handler)
 }
 
-func (gdb *GDBRSP) AddWriteWatchpoint(ctx context.Context, address uint, length uint, handler BreakpointHandler) (*Breakpoint, error) {
+func (gdb *GDBRSP) AddWriteWatchpoint(ctx context.Context, address uint, length uint, handler core.BreakpointHandler) (*core.Breakpoint, error) {
 	return gdb.AddBreakpoint(ctx, WriteWatchpoint, address, length, handler)
 }
 
-func (gdb *GDBRSP) AddAccessWatchpoint(ctx context.Context, address uint, length uint, handler BreakpointHandler) (*Breakpoint, error) {
+func (gdb *GDBRSP) AddAccessWatchpoint(ctx context.Context, address uint, length uint, handler core.BreakpointHandler) (*core.Breakpoint, error) {
 	return gdb.AddBreakpoint(ctx, AccessWatchpoint, address, length, handler)
 }
 
-func (gdb *GDBRSP) AddBreakpoint(ctx context.Context, t BreakpointType, address uint, byteLength uint, handler BreakpointHandler) (*Breakpoint, error) {
+func (gdb *GDBRSP) AddBreakpoint(ctx context.Context, t core.BreakpointType, address uint, byteLength uint, handler core.BreakpointHandler) (*core.Breakpoint, error) {
 	command := fmt.Sprintf("Z%x,%s,%x", t, gdb.Target.Arch.FormatAddress(address), byteLength)
 
 	if err := gdb.SendCommand(ctx, command); err != nil {
@@ -212,7 +216,7 @@ func (gdb *GDBRSP) AddBreakpoint(ctx context.Context, t BreakpointType, address 
 		return nil, err
 	}
 
-	b := &Breakpoint{
+	b := &core.Breakpoint{
 		Type:    t,
 		Address: address,
 		Length:  byteLength,
@@ -230,7 +234,7 @@ func (gdb *GDBRSP) AddBreakpoint(ctx context.Context, t BreakpointType, address 
 	}
 }
 
-func (gdb *GDBRSP) RemoveBreakpoint(ctx context.Context, b *Breakpoint) error {
+func (gdb *GDBRSP) RemoveBreakpoint(ctx context.Context, b *core.Breakpoint) error {
 	idx := 0
 	found := false
 
@@ -267,7 +271,7 @@ func (gdb *GDBRSP) RemoveBreakpoint(ctx context.Context, b *Breakpoint) error {
 	}
 }
 
-func (gdb *GDBRSP) WaitReply(ctx context.Context) (ReplyType, error) {
+func (gdb *GDBRSP) WaitForReply(ctx context.Context) (core.ReplyType, error) {
 	p, err := gdb.RecvResponse(ctx)
 	if err != nil {
 		return InvalidReply, err
@@ -276,7 +280,7 @@ func (gdb *GDBRSP) WaitReply(ctx context.Context) (ReplyType, error) {
 	return gdb.ProcessReply(ctx, p)
 }
 
-func (gdb *GDBRSP) ProcessReply(ctx context.Context, p []byte) (ReplyType, error) {
+func (gdb *GDBRSP) ProcessReply(ctx context.Context, p []byte) (core.ReplyType, error) {
 	if len(p) == 0 {
 		return InvalidReply, errors.New("invalid length")
 	}
@@ -328,7 +332,7 @@ func (gdb *GDBRSP) ProcessReply(ctx context.Context, p []byte) (ReplyType, error
 		return InvalidReply, errors.New("unhandled reply")
 	}
 
-	return ReplyType(p[0]), nil
+	return core.ReplyType(p[0]), nil
 }
 
 func (gdb *GDBRSP) QuerySupported(ctx context.Context) (GDBFeatures, error) {
@@ -417,59 +421,70 @@ func (gdb *GDBRSP) ReadFeature(ctx context.Context, path string) ([]byte, error)
 	return buffer.Bytes(), nil
 }
 
-func (gdb *GDBRSP) ReadRegister(ctx context.Context, reg *Register) (RegisterValue, error) {
+func (gdb *GDBRSP) GetRegister(name string) (*core.Register, error) {
+	// TODO: Maybe some way to fetch in O(1)?
+	for _, reg := range gdb.Target.Arch.Registers {
+		if reg.Name == name {
+			return reg, nil
+		}
+	}
+
+	return nil, errors.New("not found")
+}
+
+func (gdb *GDBRSP) ReadRegister(ctx context.Context, reg *core.Register) (core.RegisterValue, error) {
 	if reg.Index >= uint(len(gdb.Target.Arch.Registers)) {
-		return RegisterValue{}, errors.New("register out of bounds")
+		return core.RegisterValue{}, errors.New("register out of bounds")
 	}
 
 	if gdb.Target.Arch.Registers[reg.Index] != reg {
-		return RegisterValue{}, errors.New("register not in architecture")
+		return core.RegisterValue{}, errors.New("register not in architecture")
 	}
 
 	command := fmt.Sprintf("p%x", reg.Index)
 
 	if err := gdb.SendCommand(ctx, command); err != nil {
-		return RegisterValue{}, err
+		return core.RegisterValue{}, err
 	}
 
 	res, err := gdb.RecvResponse(ctx)
 	if err != nil {
-		return RegisterValue{}, err
+		return core.RegisterValue{}, err
 	}
 
 	val, err := hex.DecodeString(string(res))
 	if err != nil {
-		return RegisterValue{}, err
+		return core.RegisterValue{}, err
 	}
 
-	return RegisterValue{Definition: reg, Value: val}, nil
+	return core.RegisterValue{Definition: reg, Value: val}, nil
 }
 
-func (gdb *GDBRSP) ReadRegisterIndex(ctx context.Context, index uint) (RegisterValue, error) {
+func (gdb *GDBRSP) ReadRegisterIndex(ctx context.Context, index uint) (core.RegisterValue, error) {
 	command := fmt.Sprintf("p%x", index)
 
 	if err := gdb.SendCommand(ctx, command); err != nil {
-		return RegisterValue{}, err
+		return core.RegisterValue{}, err
 	}
 
 	res, err := gdb.RecvResponse(ctx)
 	if err != nil {
-		return RegisterValue{}, err
+		return core.RegisterValue{}, err
 	}
 
 	val, err := hex.DecodeString(string(res))
 	if err != nil {
-		return RegisterValue{}, err
+		return core.RegisterValue{}, err
 	}
 
 	if gdb.Target == nil || uint(len(gdb.Target.Arch.Registers)) <= index {
-		return RegisterValue{Value: val}, nil
+		return core.RegisterValue{Value: val}, nil
 	}
 
-	return RegisterValue{Definition: gdb.Target.Arch.Registers[index], Value: val}, nil
+	return core.RegisterValue{Definition: gdb.Target.Arch.Registers[index], Value: val}, nil
 }
 
-func (gdb *GDBRSP) ReadRegisters(ctx context.Context) ([]RegisterValue, error) {
+func (gdb *GDBRSP) ReadRegisters(ctx context.Context) ([]core.RegisterValue, error) {
 	raw, err := gdb.ReadRegistersRaw(ctx)
 	if err != nil {
 		return nil, err
@@ -498,6 +513,36 @@ func (gdb *GDBRSP) ReadRegistersRaw(ctx context.Context) ([]byte, error) {
 	return raw, nil
 }
 
+func (gdb *GDBRSP) WriteRegister(ctx context.Context, regVal core.RegisterValue) error {
+	if regVal.Definition.Index >= uint(len(gdb.Target.Arch.Registers)) {
+		return errors.New("register out of bounds")
+	}
+
+	if gdb.Target.Arch.Registers[regVal.Definition.Index] != regVal.Definition {
+		return errors.New("register not in architecture")
+	}
+
+	x := hex.EncodeToString(regVal.Value)
+
+	command := fmt.Sprintf("P%x=%s", regVal.Definition.Index, x)
+
+	if err := gdb.SendCommand(ctx, command); err != nil {
+		return err
+	}
+
+	res, err := gdb.RecvResponse(ctx)
+	if err != nil {
+		return err
+	}
+
+	resd := string(res)
+	if resd == "OK" {
+		return nil
+	} else {
+		return errors.New(fmt.Sprintf("failed: %s", resd[1:]))
+	}
+}
+
 func (gdb *GDBRSP) WriteRegisterIndex(ctx context.Context, index uint, data []byte) error {
 	x := hex.EncodeToString(data)
 
@@ -520,7 +565,7 @@ func (gdb *GDBRSP) WriteRegisterIndex(ctx context.Context, index uint, data []by
 	}
 }
 
-func (gdb *GDBRSP) WriteRegisters(ctx context.Context, regs []RegisterValue) error {
+func (gdb *GDBRSP) WriteRegisters(ctx context.Context, regs []core.RegisterValue) error {
 	data := new(bytes.Buffer)
 
 	if err := WriteRegisters(data, regs); err != nil {
